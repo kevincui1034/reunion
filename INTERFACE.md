@@ -6,9 +6,9 @@ XTrace, owned by teammates). Freeze this early; integration day depends on it.
 ## The four handshakes to confirm with teammates
 
 1. **What triggers us & what we receive** — defined below (Input).
-2. **What we hand back & how** — defined below (Output). Decide: do we WRITE the JSON to a
-   shared location (Butterbase / a file) or RETURN it from a call? Default assumption:
-   we produce the JSON object; transport TBD with the RocketRide owner.
+2. **What we hand back & how** — defined below (Output). Transport is HTTP:
+   `POST /api/availability` (see [docs/contracts/rocketride-to-calendar.md](./docs/contracts/rocketride-to-calendar.md)
+   for headers, errors, retry, and a TS caller snippet).
 3. **Who builds connect links** — we expose the link builder (below). They call it, or we
    send links ourselves. Default: we expose `buildConnectLink(tripId, participantId)`.
 4. **Who populates participant identity** — we need a `phone → participant` row to exist

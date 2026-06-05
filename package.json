@@ -10,7 +10,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "seed-link": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/seed-connect-link.mts",
-    "provision-butterbase": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/provision-butterbase.mts"
+    "provision-butterbase": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/provision-butterbase.mts",
+    "provision-trip-tables": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/provision-trip-tables.mts"
   },
   "dependencies": {
     "@butterbase/sdk": "^2.4.0",

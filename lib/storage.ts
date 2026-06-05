@@ -19,6 +19,32 @@ export interface OAuthTokens {
   updated_at: string;
 }
 
+/**
+ * Matches the production schema (Photon-owned), not Jossue's draft contract.
+ * Columns we don't read are intentionally omitted; the SDK tolerates that.
+ */
+export interface Trip {
+  id: string;
+  chat_guid: string;
+  destination: string | null;
+  timeframe: string | null;
+  created_at: string;
+}
+
+/**
+ * `handle` is the E.164 phone (Photon's convention). `status` is owned by Photon
+ * ('pending' | 'voted'). `availability` was added for the calendar component to
+ * write its per-participant busy/free JSON. `id` is a synthetic uuid required
+ * because Butterbase only routes PATCH/DELETE through path-param /v1/<app>/<table>/<id>.
+ */
+export interface TripParticipant {
+  id?: string;
+  trip_id: string;
+  handle: string;
+  status: string;
+  availability: string | null;
+}
+
 export interface Storage {
   getParticipantByPhone(phone: string): Promise<Participant | null>;
   getParticipantById(id: string): Promise<Participant | null>;
@@ -27,6 +53,8 @@ export interface Storage {
   getTokens(participantId: string): Promise<OAuthTokens | null>;
   putTokens(t: OAuthTokens): Promise<void>;
   deleteTokens(participantId: string): Promise<void>;
+  getTrip(tripId: string): Promise<Trip | null>;
+  upsertTripParticipant(tp: TripParticipant): Promise<void>;
 }
 
 // ---------------- Butterbase (production) ----------------
@@ -134,6 +162,48 @@ class ButterbaseStorage implements Storage {
       .execute();
     if (r.error) throw r.error;
   }
+
+  async getTrip(tripId: string) {
+    const r = await this.bb
+      .from<Trip>('trips')
+      .select('*')
+      .eq('id', tripId)
+      .limit(1)
+      .execute();
+    const rows = this.unwrap(r);
+    if (Array.isArray(rows)) return rows[0] ?? null;
+    return rows;
+  }
+
+  async upsertTripParticipant(tp: TripParticipant) {
+    const existing = await this.bb
+      .from<TripParticipant>('trip_participants')
+      .select('*')
+      .eq('trip_id', tp.trip_id)
+      .eq('handle', tp.handle)
+      .limit(1)
+      .execute();
+    if (existing.error) throw existing.error;
+    const rows = Array.isArray(existing.data) ? existing.data : existing.data ? [existing.data] : [];
+    const existingId = rows[0]?.id;
+    if (existingId) {
+      // Path-param PATCH /v1/<app>/<table>/<id>. Butterbase doesn't route
+      // query-string PATCH, so we must filter by `id` alone.
+      const r = await this.bb
+        .from<TripParticipant>('trip_participants')
+        .update({ status: tp.status, availability: tp.availability })
+        .eq('id', existingId)
+        .execute();
+      if (r.error) throw r.error;
+    } else {
+      const r = await this.bb
+        .from<TripParticipant>('trip_participants')
+        .insert(tp)
+        .select()
+        .execute();
+      if (r.error) throw r.error;
+    }
+  }
 }
 
 // ---------------- Memory (local dev fallback) ----------------
@@ -142,6 +212,8 @@ class MemoryStorage implements Storage {
   private participantsByPhone = new Map<string, Participant>();
   private participantsById = new Map<string, Participant>();
   private tokensByParticipantId = new Map<string, OAuthTokens>();
+  private trips = new Map<string, Trip>();
+  private tripParticipants = new Map<string, TripParticipant>();
 
   async getParticipantByPhone(phone: string) {
     return this.participantsByPhone.get(phone) ?? null;
@@ -173,6 +245,12 @@ class MemoryStorage implements Storage {
   async deleteTokens(participantId: string) {
     this.tokensByParticipantId.delete(participantId);
   }
+  async getTrip(tripId: string) {
+    return this.trips.get(tripId) ?? null;
+  }
+  async upsertTripParticipant(tp: TripParticipant) {
+    this.tripParticipants.set(`${tp.trip_id}:${tp.handle}`, tp);
+  }
 }
 
 // ---------------- Resolver ----------------
@@ -203,6 +281,8 @@ export const updateParticipantEmail = (id: string, email: string) => getStorage(
 export const getTokens = (id: string) => getStorage().getTokens(id);
 export const putTokens = (t: OAuthTokens) => getStorage().putTokens(t);
 export const deleteTokens = (id: string) => getStorage().deleteTokens(id);
+export const getTrip = (tripId: string) => getStorage().getTrip(tripId);
+export const upsertTripParticipant = (tp: TripParticipant) => getStorage().upsertTripParticipant(tp);
 
 export async function getOrCreateParticipantByPhone(phone: string): Promise<Participant> {
   const existing = await getParticipantByPhone(phone);
