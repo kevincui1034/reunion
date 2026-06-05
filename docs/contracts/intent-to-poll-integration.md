@@ -9,7 +9,7 @@
 
 Define the boundary contract between Reunion's intent layer and Photon's iMessage layer for the first coordination artifact: a native availability poll sent to the group chat, ending with a structured user roster.
 
-**Photon is the iMessage connector.** Inbound text arrives via Spectrum (`spectrum-ts` + iMessage provider); poll create/vote/parse always goes through `@photon-ai/advanced-imessage-kit`. Both are Photon surfaces and are shown as a single connector participant below.
+**Photon is the iMessage connector.** Inbound text is read **locally on the device** via `@photon-ai/advanced-imessage-kit`, classified on-device, and only gate-passing intent is sent to the cloud; poll create/vote/parse also goes through `@photon-ai/advanced-imessage-kit`.
 
 ## Integration boundaries (ownership)
 
@@ -17,27 +17,30 @@ The contract is the seam between independently built components. Each owner impl
 
 | Component | Owner role | Responsibility |
 |-----------|------------|----------------|
-| **Photon** | Connector | Inbound text (Spectrum webhook) + native poll create/vote/parse (advanced-imessage-kit) |
-| **RocketRide** | Orchestration | Runs the intent gate, drives the poll flow, normalizes votes, emits the roster |
+| **On-device Intent** | Edge filter | CoreML / Swift travel-intent classifier; runs locally, emits `IntentClassificationResult` only when the gate passes |
+| **Photon** | Connector | Local inbound text + native poll create/vote/parse (advanced-imessage-kit) |
+| **RocketRide** | Orchestration (cloud) | Receives gate-passing intent, drives the poll flow, normalizes votes, emits the roster |
 | **XTrace** | Knowledge | Stores group-chat knowledge: roster facts, participants, group context |
 | **Butterbase** | State | Transactional trip/poll/vote state and plan artifacts |
 
 ## Flow overview
 
+The travel-intent module runs **on-device (CoreML / Swift)** and gates *before* any cloud call: raw group text is classified locally, and only a gate-passing `IntentClassificationResult` ever leaves the device to reach RocketRide. Below-threshold messages never hit the cloud.
+
 ```mermaid
 sequenceDiagram
     participant Chat as iMessage Group Chat
-    participant PH as Photon (Spectrum + advanced-imessage-kit)
-    participant RR as RocketRide
-    participant IC as Intent Classifier
+    participant PH as Photon (advanced-imessage-kit, local)
+    participant ID as On-device Intent (CoreML/Swift)
+    participant RR as RocketRide (cloud)
     participant BB as Butterbase (state)
     participant XT as XTrace (knowledge)
 
     Chat->>PH: inbound message
-    PH->>RR: webhook event (Spectrum)
-    RR->>IC: classify(message)
-    IC-->>RR: IntentClassificationResult
+    PH->>ID: inbound text (local, on-device)
+    ID->>ID: classify on-device (CoreML)
     alt travel_intent >= threshold
+        ID->>RR: IntentClassificationResult (gate passed)
         RR->>BB: upsert Trip + Group context
         RR->>PH: CreateAvailabilityPollRequest
         PH->>Chat: native iMessage poll
@@ -47,13 +50,13 @@ sequenceDiagram
         RR-->>RR: emit UserRoster
         RR->>XT: write group knowledge + roster facts
     else below threshold
-        RR-->>Chat: no action
+        ID-->>ID: NoOp (no cloud call, text stays on-device)
     end
 ```
 
-## Step 1 — Input: Intent classification
+## Step 1 — Input: On-device intent classification
 
-Produced by RocketRide's first-pass classifier (ADR-007, ADR-014). Downstream steps MUST NOT run unless this contract's gate passes.
+Produced by the **on-device CoreML / Swift** travel-intent module (ADR-007, ADR-014), which runs on the macOS device hosting the iMessage connection. Raw message text is classified locally; downstream cloud steps (RocketRide and beyond) MUST NOT run unless this contract's gate passes. Only the `IntentClassificationResult` for gate-passing messages crosses the device→cloud boundary.
 
 ### `IntentClassificationResult`
 
@@ -88,7 +91,7 @@ Produced by RocketRide's first-pass classifier (ADR-007, ADR-014). Downstream st
 | `platform` | Must be `imessage` |
 | Required routing field | `chat_guid` (e.g. `iMessage;+;chat123456`) |
 
-If the gate fails, the pipeline returns `NoOp` and does not call the iMessage SDK.
+If the gate fails, the on-device module returns `NoOp`, makes no cloud call, and the message text never leaves the device.
 
 ## Step 2 — Action: Create availability poll
 
@@ -314,7 +317,7 @@ RocketRide pipeline stages should log:
 
 ## Resolved decisions
 
-1. **Inbound path** — Spectrum iMessage webhooks trigger the classifier (inbound text only); poll **votes** always arrive via advanced-imessage-kit `sdk.on('new-message')`.
+1. **Inbound path** — inbound text is read locally via advanced-imessage-kit `sdk.on('new-message')` and classified on-device (CoreML/Swift); only gate-passing intent reaches the cloud. Poll **votes** also arrive via advanced-imessage-kit `sdk.on('new-message')`. (Spectrum cloud webhooks are not used for raw-text classification, to keep text on-device.)
 2. **Poll options** — `Yes` / `No` / `Maybe`.
 3. **Vote changes** — first-vote-wins in v1; no revisions tracked.
 
