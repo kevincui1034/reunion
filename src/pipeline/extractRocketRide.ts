@@ -46,40 +46,66 @@ export interface RocketRideExtractorDeps {
   clientFactory: () => RocketRideLike | Promise<RocketRideLike>;
   pipelinePath: string;
   fallback: HeuristicExtract;
+  /** Max ms for the whole RocketRide round-trip before degrading. */
+  timeoutMs?: number;
 }
 
 const TRIP_PATHS: TripPath[] = ["destination-known", "time-known", "open-ended"];
+
+/** Reject after `ms` so an unreachable engine degrades fast instead of hanging. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`rocketride timeout after ${ms}ms`)), ms);
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
+  });
+}
 
 export class RocketRideExtractor {
   constructor(private readonly deps: RocketRideExtractorDeps) {}
 
   async extract(window: IncomingMessage[], nameOf: NameOf): Promise<TripSignal> {
     const participants = observedParticipants(window, nameOf);
-    let client: RocketRideLike | undefined;
+    // env override lets the demo tune the degrade timeout without code changes.
+    const ms = this.deps.timeoutMs ?? (Number(process.env.ROCKETRIDE_TIMEOUT_MS) || 8000);
+    const ref: { client?: RocketRideLike } = {};
     try {
-      client = await this.deps.clientFactory();
-      await client.connect();
-      const { token } = await client.use({ filepath: this.deps.pipelinePath });
-      const raw = await client.send(
-        token,
-        renderWindow(window, nameOf),
-        { name: "conversation.txt" },
-        "text/plain",
-      );
-      await client.terminate(token);
-      return coerceTripSignal(raw, { participants });
+      // Race the whole round-trip against a timeout — connect() can hang forever
+      // against a dead engine, which the try/catch alone would never recover from.
+      return await withTimeout(this.run(window, nameOf, participants, ref), ms);
     } catch {
       // Graceful degradation — the heuristic always produces a valid TripSignal.
       return this.deps.fallback(window, nameOf);
     } finally {
-      if (client) {
+      if (ref.client) {
         try {
-          await client.disconnect();
+          await ref.client.disconnect();
         } catch {
           /* best-effort cleanup */
         }
       }
     }
+  }
+
+  private async run(
+    window: IncomingMessage[],
+    nameOf: NameOf,
+    participants: ParticipantRef[],
+    ref: { client?: RocketRideLike },
+  ): Promise<TripSignal> {
+    ref.client = await this.deps.clientFactory();
+    await ref.client.connect();
+    const { token } = await ref.client.use({ filepath: this.deps.pipelinePath });
+    const raw = await ref.client.send(
+      token,
+      renderWindow(window, nameOf),
+      { name: "conversation.txt" },
+      "text/plain",
+    );
+    await ref.client.terminate(token);
+    return coerceTripSignal(raw, { participants });
   }
 }
 

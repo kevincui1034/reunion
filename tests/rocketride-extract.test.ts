@@ -126,7 +126,16 @@ describe("resolveExtract (config selection)", () => {
       extract,
     );
     const window = sampleConversation();
-    // No engine / SDK present in tests → graceful fallback, never throws.
-    await expect(doExtract(window, displayName)).resolves.toEqual(extract(window, displayName));
+    // The real `rocketride` pkg is installed, so connect() to a dead engine would
+    // hang. A short degrade timeout makes it fall back fast (mirrors the demo's
+    // recoverable-on-failure behavior). 100ms keeps the test snappy.
+    const prev = process.env.ROCKETRIDE_TIMEOUT_MS;
+    process.env.ROCKETRIDE_TIMEOUT_MS = "100";
+    try {
+      await expect(doExtract(window, displayName)).resolves.toEqual(extract(window, displayName));
+    } finally {
+      if (prev === undefined) delete process.env.ROCKETRIDE_TIMEOUT_MS;
+      else process.env.ROCKETRIDE_TIMEOUT_MS = prev;
+    }
   });
 });

@@ -13,12 +13,16 @@
     "dev": "tsx src/index.ts",
     "start": "npm run sidecar:build && tsx src/index.ts",
     "demo": "tsx src/demo.ts",
+    "db:provision": "tsx --env-file=.env src/state/provision.ts",
+    "db:smoke": "tsx --env-file=.env src/state/smoke.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@butterbase/sdk": "^2.4.0",
     "@photon-ai/imessage-kit": "^3.0.0",
+    "rocketride": "^1.2.0",
     "spectrum-ts": "^1.18.0"
   },
   "devDependencies": {

@@ -5,6 +5,8 @@
  */
 import { InMemoryXTrace, type MemoryStore } from "./memory/xtrace.js";
 import { InMemoryButterbase, type StateStore } from "./state/butterbase.js";
+import { ButterbaseStore } from "./state/butterbaseStore.js";
+import { butterbaseFromEnv } from "./state/butterbaseClient.js";
 
 export interface Clients {
   memory: MemoryStore; // XTrace
@@ -12,10 +14,13 @@ export interface Clients {
 }
 
 export function createClients(): Clients {
-  // TODO(team): when USE_STUBS=false, construct the real XTrace/Butterbase clients.
+  // State: real Butterbase when configured AND not forced to stubs; else in-memory.
+  const bb = process.env.USE_STUBS === "false" ? butterbaseFromEnv() : null;
+  const state: StateStore = bb ? new ButterbaseStore(bb) : new InMemoryButterbase();
+  // TODO(team): swap InMemoryXTrace for the real XTrace client when its SDK lands.
   return {
     memory: new InMemoryXTrace(),
-    state: new InMemoryButterbase(),
+    state,
   };
 }
 
