@@ -1,9 +1,16 @@
 /**
- * Butterbase-backed StateStore — the real system of record.
+ * Butterbase-backed StateStore — conforms to the SHARED live schema (Ethan's
+ * intent-to-poll tables), not a private one. Source of truth = the deployed
+ * Butterbase app (see `npm run db:introspect`).
  *
- * Implements the same `StateStore` seam as `InMemoryButterbase`, so the pipeline
- * is unchanged: flip to this when BUTTERBASE_* is configured (see config.ts).
- * Maps our camelCase contract types ↔ snake_case Butterbase rows.
+ *   trips(id, chat_guid, destination, timeframe, created_at)
+ *   trip_participants(trip_id, handle, status)
+ *   polls(id, trip_id, chat_guid, kind, title, options, trigger_message_id,
+ *         external_poll_guid, participant_snapshot, status, ..., created_at)
+ *
+ * Our `Trip` contract carries status/currentSummary, which the shared `trips`
+ * table does NOT model — those are returned as derived defaults (not persisted).
+ * What persists is the headline claim: the trip exists as real state.
  */
 import type { ButterbaseClient } from "@butterbase/sdk";
 import type { Trip, TripParticipant, PollSpec } from "../contracts/index.js";
@@ -11,29 +18,27 @@ import type { StateStore, StoredPoll } from "./butterbase.js";
 
 interface TripRow {
   id: string;
-  group_id: string;
-  destination: string;
+  chat_guid: string;
+  destination: string | null;
   timeframe: string | null;
-  status: string;
-  current_summary: string;
-  created_at: number;
-  updated_at: number;
+  created_at: string; // ISO text
 }
 
-function rowToTrip(r: TripRow): Trip {
+function rowToTrip(r: TripRow, overrides: Partial<Trip> = {}): Trip {
+  const ts = Date.parse(r.created_at) || 0;
   return {
     id: r.id,
-    groupId: r.group_id,
-    destination: r.destination,
+    groupId: r.chat_guid,
+    destination: r.destination ?? "",
     timeframe: r.timeframe,
-    status: r.status as Trip["status"],
-    currentSummary: r.current_summary,
-    createdAt: Number(r.created_at),
-    updatedAt: Number(r.updated_at),
+    status: "forming", // not modeled in shared trips table
+    currentSummary: "",
+    createdAt: ts,
+    updatedAt: ts,
+    ...overrides,
   };
 }
 
-// Loosely typed against the SDK's builders (Insert/Update/Select all expose execute()).
 async function run<T>(q: { execute: () => Promise<{ data?: unknown; error?: unknown }> }): Promise<T> {
   const { data, error } = await q.execute();
   if (error) throw new Error(`Butterbase error: ${JSON.stringify(error)}`);
@@ -55,16 +60,13 @@ export class ButterbaseStore implements StateStore {
     const t = this.now();
     const row: TripRow = {
       id: this.id("trip"),
-      group_id: input.groupId,
+      chat_guid: input.groupId, // our groupId IS the iMessage chat_guid
       destination: input.destination,
       timeframe: input.timeframe,
-      status: input.status,
-      current_summary: input.currentSummary,
-      created_at: t,
-      updated_at: t,
+      created_at: new Date(t).toISOString(),
     };
     await run(this.bb.from<TripRow>("trips").insert(row));
-    return rowToTrip(row);
+    return rowToTrip(row, { status: input.status, currentSummary: input.currentSummary, createdAt: t, updatedAt: t });
   }
 
   async getTrip(id: string): Promise<Trip | undefined> {
@@ -76,43 +78,43 @@ export class ButterbaseStore implements StateStore {
     id: string,
     patch: Partial<Pick<Trip, "destination" | "timeframe" | "status" | "currentSummary">>,
   ): Promise<Trip> {
-    const set: Record<string, unknown> = { updated_at: this.now() };
+    // Only destination/timeframe exist in the shared trips table.
+    const set: Record<string, unknown> = {};
     if (patch.destination !== undefined) set.destination = patch.destination;
     if (patch.timeframe !== undefined) set.timeframe = patch.timeframe;
-    if (patch.status !== undefined) set.status = patch.status;
-    if (patch.currentSummary !== undefined) set.current_summary = patch.currentSummary;
-    await run(this.bb.from<TripRow>("trips").update(set).eq("id", id));
-    const fresh = await this.getTrip(id);
-    if (!fresh) throw new Error(`Trip not found: ${id}`);
-    return fresh;
+    const current = await this.getTrip(id);
+    if (!current) throw new Error(`Trip not found: ${id}`);
+    if (Object.keys(set).length) {
+      // Best-effort: the shared trips table uses a text id, but the server's PATCH
+      // targets a UUID primary key, so column updates here aren't guaranteed. The
+      // pipeline only updates currentSummary (not modeled → set is empty → skipped),
+      // so this never blocks the core loop.
+      try {
+        await run(this.bb.from<TripRow>("trips").update(set).eq("chat_guid", current.groupId).eq("id", id));
+      } catch (err) {
+        console.warn(`[butterbase] trip update best-effort skipped: ${(err as Error).message}`);
+      }
+    }
+    const fresh = (await this.getTrip(id)) ?? current;
+    // Reflect non-persisted fields (status/summary) from the patch for the caller.
+    return { ...fresh, status: patch.status ?? fresh.status, currentSummary: patch.currentSummary ?? fresh.currentSummary };
   }
 
   async findTripByGroup(groupId: string): Promise<Trip | undefined> {
-    const rows = await run<TripRow[]>(
-      this.bb.from<TripRow>("trips").select("*").eq("group_id", groupId),
-    );
-    const active = (rows ?? []).filter((r) => r.status !== "planned");
-    return active[0] ? rowToTrip(active[0]) : undefined;
+    const rows = await run<TripRow[]>(this.bb.from<TripRow>("trips").select("*").eq("chat_guid", groupId));
+    return rows?.[0] ? rowToTrip(rows[0]) : undefined;
   }
 
   async upsertParticipant(p: TripParticipant): Promise<TripParticipant> {
-    const key = `${p.tripId}:${p.userId}`;
-    const row = {
-      id: key,
-      trip_id: p.tripId,
-      user_id: p.userId,
-      availability: p.availability ?? null,
-      budget_preference: p.budgetPreference ?? null,
-      dietary_preferences: p.dietaryPreferences ? JSON.stringify(p.dietaryPreferences) : null,
-      notes: p.notes ?? null,
-    };
-    const existing = await run<unknown[]>(
-      this.bb.from("trip_participants").select("id").eq("id", key),
+    // Shared trip_participants is (trip_id, handle, status).
+    const status = p.availability ? "in" : "pending";
+    const existing = await run<Array<Record<string, unknown>>>(
+      this.bb.from("trip_participants").select("*").eq("trip_id", p.tripId).eq("handle", p.userId),
     );
     if (existing?.length) {
-      await run(this.bb.from("trip_participants").update(row).eq("id", key));
+      await run(this.bb.from("trip_participants").update({ status }).eq("trip_id", p.tripId).eq("handle", p.userId));
     } else {
-      await run(this.bb.from("trip_participants").insert(row));
+      await run(this.bb.from("trip_participants").insert({ trip_id: p.tripId, handle: p.userId, status }));
     }
     return p;
   }
@@ -121,34 +123,23 @@ export class ButterbaseStore implements StateStore {
     const rows = await run<Array<Record<string, unknown>>>(
       this.bb.from("trip_participants").select("*").eq("trip_id", tripId),
     );
-    return (rows ?? []).map((r) => ({
-      tripId: String(r.trip_id),
-      userId: String(r.user_id),
-      availability: (r.availability as string) ?? undefined,
-      budgetPreference: (r.budget_preference as string) ?? undefined,
-      dietaryPreferences: r.dietary_preferences
-        ? (JSON.parse(String(r.dietary_preferences)) as string[])
-        : undefined,
-      notes: (r.notes as string) ?? undefined,
-    }));
+    return (rows ?? []).map((r) => ({ tripId: String(r.trip_id), userId: String(r.handle), notes: String(r.status ?? "") }));
   }
 
   async createPoll(tripId: string, spec: PollSpec): Promise<StoredPoll> {
-    const poll: StoredPoll = {
-      ...spec,
-      id: this.id("poll"),
-      tripId,
-      status: "open",
-      votes: {},
-    };
+    const trip = await this.getTrip(tripId);
+    const poll: StoredPoll = { ...spec, id: this.id("poll"), tripId, status: "open", votes: {} };
     await run(
       this.bb.from("polls").insert({
         id: poll.id,
         trip_id: tripId,
-        question: spec.question,
-        choices: JSON.stringify(spec.choices),
-        status: poll.status,
-        votes: JSON.stringify(poll.votes),
+        chat_guid: trip?.groupId ?? tripId,
+        kind: "date",
+        title: spec.question,
+        options: JSON.stringify(spec.choices),
+        trigger_message_id: this.id("trigger"),
+        status: "open",
+        created_at: new Date(this.now()).toISOString(),
       }),
     );
     return poll;

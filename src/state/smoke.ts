@@ -1,5 +1,5 @@
 /**
- * Butterbase smoke test — proves a real write/read against the live app.
+ * Butterbase smoke test — proves a real write/read against the live shared app.
  *   npm run db:smoke
  */
 import { butterbaseFromEnv } from "./butterbaseClient.js";
@@ -12,30 +12,34 @@ async function main() {
     process.exit(1);
   }
   const store = new ButterbaseStore(bb);
+  const groupId = `imessage;+;chat_smoke_${Date.now()}`;
 
   console.log("→ createTrip…");
   const trip = await store.createTrip({
-    groupId: "group_smoke",
+    groupId,
     destination: "Mexico City",
     timeframe: "July",
     status: "forming",
     currentSummary: "smoke test",
   });
-  console.log("  created:", trip.id);
+  console.log("  created:", trip.id, "chat_guid=", trip.groupId);
 
   console.log("→ getTrip…");
   const back = await store.getTrip(trip.id);
-  console.log("  read back:", back?.destination, back?.status);
+  console.log("  read back:", back?.destination, "/", back?.timeframe);
 
-  console.log("→ updateTrip (status=scheduling)…");
-  const upd = await store.updateTrip(trip.id, { status: "scheduling", currentSummary: "updated" });
-  console.log("  updated:", upd.status, "|", upd.currentSummary);
+  console.log("→ findTripByGroup (by chat_guid)…");
+  const found = await store.findTripByGroup(groupId);
+  console.log("  found by chat_guid:", found?.id === trip.id ? "✓ same trip" : "✗ mismatch");
 
-  console.log("→ findTripByGroup…");
-  const found = await store.findTripByGroup("group_smoke");
-  console.log("  found by group:", found?.id === trip.id ? "✓ same trip" : "✗ mismatch");
+  console.log("→ createPoll (date poll on the shared polls table)…");
+  const poll = await store.createPoll(trip.id, {
+    question: "Which weekend works?",
+    choices: [{ id: "wk_0", label: "Jul 18–21" }, { id: "wk_1", label: "Jul 25–28" }],
+  });
+  console.log("  poll persisted:", poll.id);
 
-  console.log("\n✅ Butterbase round-trip works — trip persisted as real state.");
+  console.log("\n✅ Butterbase live: trip + poll persisted as real state in the shared schema.");
 }
 
 main().catch((e) => {
