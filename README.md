@@ -38,6 +38,10 @@ Mac. (Variant A, a purpose-trained CoreML model, is documented in
    Required to read `~/Library/Messages/chat.db`.
 2. **Enable Apple Intelligence**: System Settings → Apple Intelligence & Siri.
 3. Install + build: `npm install && npm run sidecar:build`
+4. **Configure env**: `cp .env.example .env`, then set `BUTTERBASE_API_KEY`
+   (get the value from the team — it's a secret, never committed). Without it the
+   gate still runs and classifies; backend forwarding just logs a dry-run instead
+   of writing rows. Scope which group(s) to watch with `REUNION_CHATS` (default `Dev`).
 
 ### Run
 
