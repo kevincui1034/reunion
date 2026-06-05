@@ -8,15 +8,12 @@
     "node": ">=20"
   },
   "scripts": {
-    "sidecar:build": "cd sidecar && swift build -c release",
-    "sidecar:smoke": "cd sidecar && swift build -c release >/dev/null && printf '%s\\n' '{\"window\":\"we should do a trip to Lisbon in September\"}' '{\"window\":\"did you watch the game last night\"}' | ./.build/release/intent-sidecar",
-    "dev": "tsx src/index.ts",
-    "start": "npm run sidecar:build && tsx src/index.ts",
-    "demo": "tsx src/demo.ts",
+    "demo": "tsx --env-file-if-exists=.env src/demo.ts",
     "db:provision": "tsx --env-file=.env src/state/provision.ts",
     "db:introspect": "tsx --env-file=.env src/state/introspect.ts",
     "db:smoke": "tsx --env-file=.env src/state/smoke.ts",
     "xtrace:smoke": "tsx --env-file=.env src/memory/xtraceSmoke.ts",
+    "graph:seed": "tsx --env-file=.env scripts/seed-culture-graph.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -25,6 +22,7 @@
     "@butterbase/sdk": "^2.4.0",
     "@photon-ai/imessage-kit": "^3.0.0",
     "@xtraceai/memory": "^0.2.1",
+    "neo4j-driver": "^6.1.0",
     "rocketride": "^1.2.0",
     "spectrum-ts": "^1.18.0"
   },

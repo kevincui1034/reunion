@@ -100,6 +100,29 @@ describe("RocketRideExtractor", () => {
     expect(calls).toEqual(["connect", "use", "send", "terminate", "disconnect"]);
   });
 
+  it("sends the full extraction instruction (schema + roster), not the bare transcript", async () => {
+    // Regression guard: the committed pipeline's `question` node carries no prompt,
+    // so the schema + roster MUST travel with the input. Sending only the transcript
+    // makes the model emit prose → coercion throws → silent fallback (engine never
+    // really runs). Lock the payload shape here.
+    let sent = "";
+    const { client } = fakeClient({
+      send: async (_t: string, data: string) => { sent = data; return { destination: "Mexico City", path: "destination-known" }; },
+    });
+    const extractor = new RocketRideExtractor({
+      clientFactory: () => client,
+      pipelinePath: "./pipelines/extract-trip-signal.pipe",
+      fallback: extract,
+    });
+
+    await extractor.extract(sampleConversation(), displayName);
+
+    expect(sent).toContain('"path"'); // the JSON schema is present
+    expect(sent).toContain("=u_"); // roster maps display names → stable userIds
+    expect(sent).toContain("never invent"); // the no-hallucination rule
+    expect(sent).toMatch(/Conversation:/); // transcript still included
+  });
+
   it("falls back to the heuristic extractor when the engine errors, and still disconnects", async () => {
     const { client, calls } = fakeClient({
       send: async () => { throw new Error("engine unreachable"); },

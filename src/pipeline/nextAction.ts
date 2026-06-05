@@ -1,30 +1,26 @@
 /**
  * RocketRide step: next-action generation.  [Owner: Jossue]
  *
- * Turns a PlanResult into the single OutgoingMove posted back into chat. Always
- * "ask before acting" (PRD example): we propose the poll, we don't silently create
- * the trip as final.
+ * Turns a PlanResult into the single OutgoingMove posted back into chat. In the
+ * destination-known V1 flow the move is the rendered itinerary as PLAIN TEXT (Local
+ * mode: no Markdown, no cards — PRD §18/§23). When no bookable window exists yet, we
+ * ask the group to widen availability instead.
  */
 import type { OutgoingMove } from "../contracts/index.js";
 import type { PlanResult } from "./plan.js";
-import { renderDatePoll } from "../planning/poll/render.js";
 
 export function nextAction(result: PlanResult, groupId: string): OutgoingMove {
-  const { summary, candidates, nextStep } = result;
+  const { summary, itinerary, nextStep } = result;
 
-  if (nextStep === "confirm-and-poll") {
-    const poll = renderDatePoll(candidates);
-    return {
-      groupId,
-      text: `Sounds like a trip is forming. Here's what I have:\n\n${summary}\n\nWant me to start a date poll?`,
-      poll,
-    };
+  if (nextStep === "itinerary" && itinerary) {
+    // The itinerary is already chat-shaped, plain text. Send it as-is.
+    return { groupId, text: itinerary };
   }
 
   if (nextStep === "gather-availability") {
     return {
       groupId,
-      text: `${summary}\n\nWhat weekends are you all free? I'll find one that works.`,
+      text: `${summary}\n\nNo window works for everyone yet — what dates are you free? I'll find one.`,
     };
   }
 

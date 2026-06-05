@@ -70,10 +70,17 @@ export class InMemoryButterbase implements StateStore {
   }
 
   async findTripByGroup(groupId: string): Promise<Trip | undefined> {
+    // The group's active trip, regardless of status — matches the real
+    // ButterbaseStore (which returns the trip row for a chat_guid). A planned trip
+    // stays the system of record: later messages UPDATE it (the plan is a living
+    // artifact) rather than spawning a fresh trip per message.
+    let latest: Trip | undefined;
     for (const trip of this.trips.values()) {
-      if (trip.groupId === groupId && trip.status !== "planned") return trip;
+      if (trip.groupId === groupId && (!latest || trip.updatedAt >= latest.updatedAt)) {
+        latest = trip;
+      }
     }
-    return undefined;
+    return latest;
   }
 
   async upsertParticipant(p: TripParticipant): Promise<TripParticipant> {

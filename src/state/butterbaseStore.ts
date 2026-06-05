@@ -112,7 +112,12 @@ export class ButterbaseStore implements StateStore {
       this.bb.from("trip_participants").select("*").eq("trip_id", p.tripId).eq("handle", p.userId),
     );
     if (existing?.length) {
-      await run(this.bb.from("trip_participants").update({ status }).eq("trip_id", p.tripId).eq("handle", p.userId));
+      // No-op: trip_participants has a composite (trip_id, handle) key and no `id`
+      // PK, but the server's PATCH/DELETE routes target a UUID id — so filtered
+      // mutations ALWAYS 404 (verified). The row already persists from the first
+      // insert (the headline claim — the participant is real state), so we skip the
+      // doomed round-trip rather than retry-and-warn on every re-seen sender as the
+      // window slides. Status therefore reflects first-seen availability.
     } else {
       await run(this.bb.from("trip_participants").insert({ trip_id: p.tripId, handle: p.userId, status }));
     }

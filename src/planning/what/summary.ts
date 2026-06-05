@@ -10,12 +10,15 @@ import type {
   Trip,
   TripSignal,
   CandidateWeekend,
+  GroupBrief,
 } from "../../contracts/index.js";
+import { cultureLines } from "./culture.js";
 
 export function buildSummary(
   trip: Trip,
   signal: TripSignal,
   candidates: CandidateWeekend[],
+  cultureBrief?: GroupBrief | null,
 ): string {
   const lines: string[] = [];
   lines.push(`Destination: ${trip.destination}`);
@@ -39,6 +42,9 @@ export function buildSummary(
     lines.push(`Candidate weekends: ${top}`);
   }
   if (signal.openQuestions.length) lines.push(`Still open: ${signal.openQuestions.join(", ")}`);
+
+  // Personalized touches from the Neo4J culture graph (heritage food + origins).
+  if (cultureBrief) lines.push(...cultureLines(cultureBrief));
 
   return lines.join("\n");
 }

@@ -100,7 +100,7 @@ export class RocketRideExtractor {
     const { token } = await ref.client.use({ filepath: this.deps.pipelinePath });
     const raw = await ref.client.send(
       token,
-      renderWindow(window, nameOf),
+      buildExtractionPrompt(window, nameOf, participants),
       { name: "conversation.txt" },
       "text/plain",
     );
@@ -112,6 +112,41 @@ export class RocketRideExtractor {
 /** Render the sliding window as the plain-text transcript the pipeline sees. */
 export function renderWindow(window: IncomingMessage[], nameOf: NameOf): string {
   return window.map((m) => `${nameOf(m.senderId)}: ${m.text}`).join("\n");
+}
+
+/**
+ * Build the full extraction instruction the LLM receives. The committed pipeline's
+ * `question` node is a bare passthrough — it carries NO prompt — so the schema,
+ * roster, and "never invent" rules must travel with the input text. (Sending only
+ * the raw transcript makes the model emit prose, coercion throws, and we degrade to
+ * the heuristic — i.e. the engine is never really exercised.) This mirrors the
+ * proven prompt in `scripts/rocketride-probe.ts`, with roster + transcript built
+ * from the live window so the model emits our stable `userId`s, not just names.
+ */
+export function buildExtractionPrompt(
+  window: IncomingMessage[],
+  nameOf: NameOf,
+  participants: ParticipantRef[],
+): string {
+  const roster = participants.map((p) => `${p.displayName}=${p.userId}`).join(", ");
+  return `You extract group-travel planning signal from a chat snippet.
+Roster (name = userId): ${roster}.
+
+Return ONLY a JSON object (no prose, no markdown fence) with this exact shape:
+{
+  "path": "destination-known" | "time-known" | "open-ended",
+  "destination": string | null,
+  "timeframe": string | null,
+  "participants": [{ "userId": string, "displayName": string }],
+  "constraints": [{ "userId": string | null, "kind": "availability"|"budget"|"diet"|"other", "value": string }],
+  "preferences": [{ "userId": string | null, "kind": "lodging"|"food"|"activity"|"destination", "value": string }],
+  "openQuestions": string[],
+  "confidence": number
+}
+Rules: never invent facts; if something isn't stated, omit it (null or []). Use the roster's userIds.
+
+Conversation:
+${renderWindow(window, nameOf)}`;
 }
 
 function observedParticipants(window: IncomingMessage[], nameOf: NameOf): ParticipantRef[] {

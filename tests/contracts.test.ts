@@ -72,7 +72,10 @@ describe("producers honor their contracts (Pablo → Jossue → Kevin → Ethan)
     const signal = extract(window, displayName);
     const decision = route(signal);
     const result = await plan(signal, decision, GROUP_ID, clients, {
-      availability: (q) => computeCandidateWeekends(q, mockCalendar()),
+      availability: async (_trip, ids) => ({
+        candidates: computeCandidateWeekends({ participants: ids, windowKind: "weekend" }, mockCalendar()),
+        pendingConnects: [],
+      }),
     });
     expect(() => assertTrip(result.trip)).not.toThrow();
 

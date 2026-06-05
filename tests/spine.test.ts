@@ -5,6 +5,7 @@ import { route } from "../src/pipeline/route.js";
 import { plan } from "../src/pipeline/plan.js";
 import { nextAction } from "../src/pipeline/nextAction.js";
 import { computeCandidateWeekends } from "../src/planning/when/availability.js";
+import type { AvailabilityResolver } from "../src/planning/when/availabilityResolver.js";
 import {
   GROUP_ID,
   displayName,
@@ -13,7 +14,7 @@ import {
 } from "../src/mocks/seed.js";
 
 describe("end-to-end spine (destination-known)", () => {
-  it("turns the seed conversation into a trip + date-poll move", async () => {
+  it("turns the seed conversation into a planned trip + itinerary move", async () => {
     const clients = createClients();
     const calendar = mockCalendar();
     const window = sampleConversation();
@@ -26,20 +27,28 @@ describe("end-to-end spine (destination-known)", () => {
     const decision = route(signal);
     expect(decision.act).toBe(true);
 
-    const result = await plan(signal, decision, GROUP_ID, clients, {
-      availability: (q) => computeCandidateWeekends(q, calendar),
+    const availability: AvailabilityResolver = async (_trip, ids) => ({
+      candidates: computeCandidateWeekends({ participants: ids, windowKind: "weekend" }, calendar),
+      pendingConnects: [],
     });
+    const result = await plan(signal, decision, GROUP_ID, clients, { availability });
     expect(result.trip.destination).toBe("Mexico City");
     expect(result.candidates.length).toBeGreaterThan(0);
-    expect(result.summary).toContain("Mexico City");
+    expect(result.nextStep).toBe("itinerary");
+    expect(result.chosenWindow).toBeDefined();
+    expect(result.itinerary).toContain("Mexico City");
+    expect(result.trip.status).toBe("planned");
 
+    // The move is the rendered itinerary, plain text (no poll in Local mode).
     const move = nextAction(result, GROUP_ID);
-    expect(move.poll).toBeDefined();
-    expect(move.poll!.choices.length).toBeGreaterThan(0);
+    expect(move.poll).toBeUndefined();
+    expect(move.text).toContain("Trip plan");
+    expect(move.text).toContain("Mexico City");
 
-    // Trip is persisted state, retrievable from Butterbase (the system of record).
-    const persisted = await clients.state.findTripByGroup(GROUP_ID);
+    // Trip is persisted state, retrievable from Butterbase by id (the system of record).
+    const persisted = await clients.state.getTrip(result.trip.id);
     expect(persisted?.id).toBe(result.trip.id);
+    expect(persisted?.currentSummary).toBe(result.itinerary);
   });
 
   it("does not act on a non-destination signal", () => {

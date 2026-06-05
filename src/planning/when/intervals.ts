@@ -96,3 +96,21 @@ export function intersectFree(arrays: Interval[][]): Interval[] {
 export function totalMs(intervals: Interval[]): number {
   return intervals.reduce((sum, iv) => sum + (Date.parse(iv.end) - Date.parse(iv.start)), 0);
 }
+
+/**
+ * Tolerant range-bound parse for external payloads: accepts an epoch-ms number,
+ * a numeric string, or an ISO 8601 string (date or datetime). Returns epoch ms,
+ * or null if unparseable. Used by the calendar client where the wire format of
+ * `common_free` bounds isn't pinned down yet.
+ */
+export function normalizeRangeBound(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const s = v.trim();
+    if (/^\d+$/.test(s)) return Number(s); // numeric epoch ms as a string
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(s);
+    const ms = dateOnly ? Date.parse(s + "T00:00:00.000Z") : Date.parse(s);
+    return Number.isNaN(ms) ? null : ms;
+  }
+  return null;
+}

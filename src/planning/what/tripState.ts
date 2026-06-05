@@ -7,6 +7,7 @@
  */
 import type { Clients } from "../../config.js";
 import type { Trip, TripSignal } from "../../contracts/index.js";
+import { normalizeTimeframe } from "./timeframe.js";
 
 export async function upsertTripFromSignal(
   signal: TripSignal,
@@ -17,16 +18,20 @@ export async function upsertTripFromSignal(
     throw new Error("upsertTripFromSignal requires a known destination");
   }
 
+  // Persist an ISO range when derivable so Kevin's calendar parser gets the tightest
+  // window; otherwise the fuzzy string passes through (DECISION 4).
+  const timeframe = normalizeTimeframe(signal.timeframe);
+
   const existing = await clients.state.findTripByGroup(groupId);
   const trip = existing
     ? await clients.state.updateTrip(existing.id, {
         destination: signal.destination,
-        timeframe: signal.timeframe ?? existing.timeframe,
+        timeframe: timeframe ?? existing.timeframe,
       })
     : await clients.state.createTrip({
         groupId,
         destination: signal.destination,
-        timeframe: signal.timeframe,
+        timeframe,
         status: "forming",
         currentSummary: "",
       });

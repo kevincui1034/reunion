@@ -18,6 +18,10 @@ import { plan } from "./pipeline/plan.js";
 import { nextAction } from "./pipeline/nextAction.js";
 import { ConsoleChannel } from "./channel/index.js";
 import { computeCandidateWeekends } from "./planning/when/availability.js";
+import { resolveAvailability, type AvailabilityResolver } from "./planning/when/availabilityResolver.js";
+import { resolveItinerary } from "./planning/what/itinerary.js";
+import { resolveCultureGraph } from "./state/neo4j.js";
+import { buildGroupBrief } from "./planning/what/culture.js";
 import {
   GROUP_ID,
   displayName,
@@ -40,8 +44,36 @@ async function main() {
   );
   const extractMode = !config.useStubs && config.rocketride ? "RocketRide" : "heuristic";
 
+  // Availability: Kevin's live calendar endpoint when configured, else the in-process
+  // interval engine over the mock calendar. Degrades to the stub on any endpoint error.
+  const stubAvailability: AvailabilityResolver = async (_trip, ids) => ({
+    candidates: computeCandidateWeekends({ participants: ids, windowKind: "weekend" }, calendar),
+    pendingConnects: [],
+  });
+  const doAvailability = resolveAvailability(
+    { useStubs: config.useStubs, calendar: config.calendar },
+    stubAvailability,
+  );
+  const availMode = !config.useStubs && config.calendar ? "calendar API" : "stub";
+
+  // Itinerary: RocketRide pipeline when configured, else the deterministic template.
+  const doItinerary = resolveItinerary({ useStubs: config.useStubs, rocketride: config.itinerary });
+
+  // Neo4J culture graph (live Aura when configured, else in-memory stub). Recalls
+  // each friend's heritage/cuisine/origin and decides per-person food + destination.
+  const cultureGraph = await resolveCultureGraph({ useStubs: config.useStubs, neo4j: config.neo4j });
+  const cultureMode = !config.useStubs && config.neo4j ? "Neo4J/Aura" : "stub";
+  const cultureBrief = async (ids: string[], dest: string | null) => {
+    try {
+      return buildGroupBrief(await cultureGraph.facts(ids), ids, dest);
+    } catch {
+      return null; // degrade — summary just omits the personalized lines
+    }
+  };
+
   console.log(
-    `🛳️  Reunion — core loop demo (extract: ${extractMode})\n` + "=".repeat(48),
+    `🛳️  Reunion — core loop demo (extract: ${extractMode} · availability: ${availMode} · culture: ${cultureMode})\n` +
+      "=".repeat(48),
   );
 
   for (const message of sampleConversation()) {
@@ -73,14 +105,23 @@ async function main() {
     }
     console.log(`   🧭 route: act — ${decision.reason}`);
 
-    // ── Stage 4: plan (state + memory + availability) ──
+    // ── Stage 4: plan (state + memory + availability + itinerary) ──
     const result = await plan(signal, decision, GROUP_ID, clients, {
-      availability: (q) => computeCandidateWeekends(q, calendar),
+      availability: doAvailability,
+      generateItinerary: doItinerary,
+      cultureBrief,
     });
     console.log(
       `   📦 plan: trip=${result.trip.id} status=${result.trip.status} ` +
-        `next=${result.nextStep} candidates=${result.candidates.length}`,
+        `next=${result.nextStep} candidates=${result.candidates.length}` +
+        (result.chosenWindow ? ` chosen=${result.chosenWindow.label}` : ""),
     );
+    if (result.pendingConnects.length) {
+      console.log(
+        `   📨 connect links to DM (Photon): ` +
+          result.pendingConnects.map((p) => p.handle).join(", "),
+      );
+    }
 
     // ── Stage 5: next move → channel ──
     const move = nextAction(result, GROUP_ID);
@@ -106,7 +147,11 @@ async function main() {
   console.log(
     `   superseded: ${all.filter((f) => f.superseded).map((f) => `"${f.value}"`).join(", ") || "(none)"}`,
   );
-  console.log("\n✅ end-to-end spine ran on stubs.");
+  await cultureGraph.close();
+  const backends = config.useStubs
+    ? "in-memory stubs"
+    : `live tools (extract: ${extractMode}, culture: ${cultureMode}, XTrace + Butterbase)`;
+  console.log(`\n✅ end-to-end spine ran on ${backends}.`);
 }
 
 main().catch((err) => {

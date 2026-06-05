@@ -133,6 +133,16 @@ export interface OutgoingMove {
   options?: OptionSpec[];
 }
 
+/**
+ * A participant who hasn't connected their calendar yet. Surfaced by planning so
+ * the channel layer (Photon) can DM the connect link to that handle. The DM is
+ * Ethan's `send`; planning only produces the list.
+ */
+export interface PendingConnect {
+  handle: string; // E.164 phone — also the Photon user handle in iMessage
+  connectUrl: string; // Google Calendar connect link to DM
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 7. Fact — XTrace durable memory   (shared: Pablo writes, Jossue reads/writes)
 //    Belief revision: a new fact supersedes a contradicting old one. (FR3)
@@ -148,4 +158,59 @@ export interface Fact {
   ts: number;
   supersedes?: string; // id of the fact this revises
   superseded?: boolean; // true once a newer fact revises this one
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. Culture graph — Neo4J knowledge graph of the group   (owner: Jossue)
+//    RECALL each person's heritage/cuisine/diet/origin; DECIDE a destination's
+//    per-person food picks + how well it covers the whole group's cuisines.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One person's cultural + travel profile (a graph fact and a brief row). */
+export interface PersonBrief {
+  userId: string;
+  displayName: string;
+  heritage: string; // "Salvadoran"
+  cuisine: string; // "Pupusas"
+  diet: string | null; // "vegetarian" | null
+  homeCity: string; // "Newark"
+  originAirport: string; // "EWR"
+}
+
+/** A per-person food recommendation at a candidate city. */
+export interface FoodPick {
+  userId: string;
+  displayName: string;
+  cuisine: string;
+  spot: string | null; // "a Roma Norte pupusería", or null if the city lacks it
+}
+
+/** How well a city fits the group, plus the per-person picks there. */
+export interface DestinationFit {
+  city: string;
+  airport: string | null; // destination airport code → round-trip framing (there + back)
+  localTransit: string | null; // "getting around" note, rendered only when present
+  coverage: number; // 0..1 = fraction of the group's cuisines the city offers
+  picks: FoodPick[];
+}
+
+/** The recall + decide result the planning layer renders into the recap. */
+export interface GroupBrief {
+  people: PersonBrief[];
+  origins: { userId: string; displayName: string; homeCity: string; airport: string }[];
+  destinationFit: DestinationFit | null; // when the destination is known
+  rankedDestinations: DestinationFit[]; // when open-ended (best coverage first)
+}
+
+/** Raw facts fetched from the graph (or stub) — input to buildGroupBrief. */
+export interface CityFacts {
+  name: string;
+  airport?: string; // destination airport code (round-trip framing)
+  localTransit?: string; // local getting-around note (optional — "if required")
+  offers: { cuisine: string; spot: string }[];
+}
+
+export interface CultureFacts {
+  people: PersonBrief[];
+  cities: CityFacts[];
 }

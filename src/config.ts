@@ -33,7 +33,38 @@ const rocketride =
     ? {
         uri: process.env.ROCKETRIDE_URI,
         auth: rocketrideAuth,
-        pipelinePath: process.env.ROCKETRIDE_PIPELINE ?? "./pipelines/extract-trip-signal.json",
+        pipelinePath: process.env.ROCKETRIDE_PIPELINE ?? "./pipelines/extract-trip-signal.pipe",
+      }
+    : undefined;
+
+// RocketRide itinerary pipeline — separate from extraction; same engine connection.
+const itinerary =
+  process.env.ROCKETRIDE_URI || rocketrideAuth
+    ? {
+        uri: process.env.ROCKETRIDE_URI,
+        auth: rocketrideAuth,
+        pipelinePath: process.env.ROCKETRIDE_ITINERARY_PIPELINE ?? "./pipelines/generate-itinerary.pipe",
+      }
+    : undefined;
+
+// Kevin's calendar availability endpoint. Present only when both base URL and the
+// shared internal key are configured; else availability runs on the in-process stub.
+const calendar =
+  process.env.CALENDAR_BASE_URL && process.env.CALENDAR_INTERNAL_KEY
+    ? {
+        baseUrl: process.env.CALENDAR_BASE_URL,
+        internalKey: process.env.CALENDAR_INTERNAL_KEY,
+      }
+    : undefined;
+
+// Neo4J culture graph (Aura). Present only when fully configured; else the demo
+// uses the in-memory culture stub (same seed data) so it always runs.
+const neo4j =
+  process.env.ROCKETRIDE_NEO4J_URI && process.env.ROCKETRIDE_NEO4J_PASSWORD
+    ? {
+        uri: process.env.ROCKETRIDE_NEO4J_URI,
+        user: process.env.ROCKETRIDE_NEO4J_USER ?? "neo4j",
+        password: process.env.ROCKETRIDE_NEO4J_PASSWORD,
       }
     : undefined;
 
@@ -41,4 +72,7 @@ export const config = {
   useStubs: process.env.USE_STUBS !== "false",
   channel: (process.env.CHANNEL ?? "iMessage") as "iMessage" | "telegram",
   rocketride,
+  itinerary,
+  calendar,
+  neo4j,
 };
