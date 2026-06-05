@@ -3,6 +3,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { IMessageSDK, type Message } from "@photon-ai/imessage-kit";
 import { startClassifier, classify, type Verdict } from "./classifier.js";
+import { sendIntentEvent, type IntentEvent } from "./backend.js";
+
+// Load .env (Butterbase creds, scope config) before reading any env below.
+try {
+  process.loadEnvFile();
+} catch {
+  // no .env present — falls back to process env / dry-run backend
+}
 
 // We read at the imessage-kit layer (beneath Spectrum) on purpose: Reunion is an
 // ambient observer that must check EVERY message in the group, including the ones
@@ -16,6 +24,9 @@ const ALLOWED_CHATS = (process.env.REUNION_CHATS ?? "Dev")
   .split(",")
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
+
+// Minimum confidence before forwarding a YES to the backend (low-noise gate).
+const MIN_CONFIDENCE = Number(process.env.REUNION_MIN_CONFIDENCE ?? "0.5");
 
 // How many recent messages per conversation to feed the classifier. Travel
 // intent often emerges across turns ("we should travel" -> "yeah" -> "where").
@@ -59,12 +70,49 @@ function loadChats(): Array<{ identifier: string; name: string }> {
   return out;
 }
 
-const chats = loadChats();
+const DB_PATH = join(homedir(), "Library", "Messages", "chat.db");
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function chatName(chatId: string | null): string {
-  if (!chatId) return "";
-  const hit = chats.find((c) => chatId === c.identifier || chatId.includes(c.identifier));
-  return hit?.name ?? "";
+type ResolvedChat = { name: string; kind: string; identifier: string };
+
+// Look up a message's real chat in chat.db by its store rowId. Returns null when
+// the chat_message_join row hasn't flushed yet (WAL race on a just-sent message).
+function lookupChatByRowId(rowId: number): ResolvedChat | null {
+  if (!Number.isInteger(rowId)) return null;
+  try {
+    const out = execFileSync(
+      "sqlite3",
+      [
+        "-readonly",
+        "-separator",
+        "\t",
+        DB_PATH,
+        `SELECT COALESCE(NULLIF(c.display_name,''),''), c.style, c.chat_identifier
+         FROM chat_message_join cmj JOIN chat c ON c.ROWID = cmj.chat_id
+         WHERE cmj.message_id = ${rowId} LIMIT 1;`,
+      ],
+      { encoding: "utf8" },
+    ).trim();
+    if (!out) return null;
+    const [name, style, identifier] = out.split("\t");
+    const kind = style === "43" ? "group" : style === "45" ? "dm" : "unknown";
+    return { name: name ?? "", kind, identifier: identifier ?? "" };
+  } catch {
+    return null;
+  }
+}
+
+// Authoritative chat resolution. The watcher can emit a DM-style chatId for a
+// just-sent (from-me) group message during a WAL race, before chat_message_join
+// flushes — so we resolve from chat.db by rowId, retrying briefly for the flush.
+// This makes the scope filter and chat_id correct regardless of the racey chatId.
+async function resolveChat(rowId: number): Promise<ResolvedChat> {
+  for (let i = 0; i < 5; i++) {
+    const hit = lookupChatByRowId(rowId);
+    if (hit) return hit;
+    await sleep(700);
+  }
+  return { name: "", kind: "unknown", identifier: "" };
 }
 
 const RULE = "-".repeat(60);
@@ -78,8 +126,9 @@ function printReadout(args: {
   sender: string;
   text: string;
   verdict: Verdict;
+  forwarded: boolean;
 }): void {
-  const { chat, sender, text, verdict } = args;
+  const { chat, sender, text, verdict, forwarded } = args;
   console.log(
     [
       RULE,
@@ -89,6 +138,7 @@ function printReadout(args: {
       field("intent:", verdict.isTravelIntent ? "YES" : "NO"),
       field("confidence:", verdict.confidence.toFixed(2)),
       field("location:", verdict.location.trim() || "-"),
+      field("forwarded:", forwarded ? "butterbase" : "-"),
       RULE,
     ].join("\n"),
   );
@@ -99,11 +149,14 @@ async function handleMessage(message: Message): Promise<void> {
   const text = (message.text ?? "").trim();
   if (!text) return;
 
-  const name = chatName(message.chatId);
+  // Resolve the real chat from chat.db by rowId (handles the from-me WAL race
+  // where the watcher reports a DM-style chatId for a group message).
+  const resolved = await resolveChat(message.rowId);
+  const name = resolved.name;
   if (!ALLOWED_CHATS.includes(name.toLowerCase())) return; // scope: only watched chats
 
-  const chatId = message.chatId ?? "unknown";
-  const kind = message.chatKind; // 'dm' | 'group' | 'unknown'
+  const chatId = resolved.identifier || message.chatId || "unknown";
+  const kind = resolved.kind !== "unknown" ? resolved.kind : message.chatKind;
   const chat = name ? `${kind} "${name}"` : kind;
   const sender = message.isFromMe ? "(me)" : (message.participant ?? "unknown");
 
@@ -117,7 +170,31 @@ async function handleMessage(message: Message): Promise<void> {
     return;
   }
 
-  printReadout({ chat, sender, text, verdict });
+  // Gate: only travel-intent messages (above the confidence floor) leave the
+  // device. Everything else stays local (ADR-007/014). Build and forward the
+  // upstream intent event to Butterbase.
+  let forwarded = false;
+  if (verdict.isTravelIntent && verdict.confidence >= MIN_CONFIDENCE) {
+    const event: IntentEvent = {
+      message_id: message.id,
+      channel: "iMessage",
+      chat_id: chatId,
+      chat_name: name || null,
+      chat_kind: kind,
+      sender,
+      is_from_me: message.isFromMe,
+      text,
+      context_window: window,
+      is_travel_intent: true,
+      confidence: verdict.confidence,
+      location: verdict.location.trim() || null,
+      created_at: new Date().toISOString(),
+    };
+    await sendIntentEvent(event);
+    forwarded = true;
+  }
+
+  printReadout({ chat, sender, text, verdict, forwarded });
 }
 
 async function main(): Promise<void> {
