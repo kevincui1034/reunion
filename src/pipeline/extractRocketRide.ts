@@ -160,18 +160,30 @@ export function coerceTripSignal(
 function unwrap(raw: unknown): Record<string, unknown> {
   let value = raw;
   if (typeof value === "string") {
-    value = JSON.parse(value); // throws on non-JSON → caller falls back
+    value = JSON.parse(stripCodeFence(value)); // throws on non-JSON → caller falls back
   }
   if (!isPlainObject(value)) {
     throw new Error("pipeline result is not an object");
   }
-  if ("result" in value && isPlainObject((value as Record<string, unknown>).result)) {
-    return (value as Record<string, unknown>).result as Record<string, unknown>;
+  const obj = value as Record<string, unknown>;
+  // RocketRide `response_answers` envelope: { answers: ["<json>" | {...}], ... }.
+  if (Array.isArray(obj.answers) && obj.answers.length) {
+    const first = obj.answers[0];
+    if (typeof first === "string" || isPlainObject(first)) return unwrap(first);
   }
-  if ("result" in value && typeof (value as Record<string, unknown>).result === "string") {
-    return unwrap((value as Record<string, unknown>).result);
+  if (isPlainObject(obj.result)) {
+    return obj.result as Record<string, unknown>;
   }
-  return value as Record<string, unknown>;
+  if (typeof obj.result === "string") {
+    return unwrap(obj.result);
+  }
+  return obj;
+}
+
+/** LLMs sometimes wrap JSON in ```json … ``` fences — strip them before parsing. */
+function stripCodeFence(s: string): string {
+  const m = s.trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return m?.[1] ?? s;
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

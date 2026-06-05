@@ -50,6 +50,25 @@ describe("coerceTripSignal", () => {
     expect(() => coerceTripSignal("not json", { participants: PARTICIPANTS })).toThrow();
     expect(() => coerceTripSignal(42, { participants: PARTICIPANTS })).toThrow();
   });
+
+  it("unwraps the live response_answers envelope (answers[0] = JSON string)", () => {
+    // The exact shape RocketRide returns from a response_answers node.
+    const envelope = {
+      answers: ['{"path":"destination-known","destination":"Mexico City","timeframe":"July"}'],
+      name: "conversation.txt",
+      result_types: { answers: "answers" },
+    };
+    const s = coerceTripSignal(envelope, { participants: PARTICIPANTS });
+    expect(s.destination).toBe("Mexico City");
+    expect(s.timeframe).toBe("July");
+    expect(s.path).toBe("destination-known");
+  });
+
+  it("strips markdown code fences around the JSON answer", () => {
+    const envelope = { answers: ["```json\n{\"destination\":\"Tokyo\"}\n```"] };
+    const s = coerceTripSignal(envelope, { participants: PARTICIPANTS });
+    expect(s.destination).toBe("Tokyo");
+  });
 });
 
 describe("RocketRideExtractor", () => {
