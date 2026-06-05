@@ -1,19 +1,19 @@
 /**
  * Availability → candidate weekends.  [Owner: Kevin]
  *
- * STUB: computes Fri→Mon weekend windows from a mocked busy-calendar and ranks
- * them by fraction of participants free. Availability-only — no event-priority
- * scoring in V1 (ADR-003). Default weekend window Fri midday → Mon (ADR-011).
+ * Now backed by Kevin's REAL interval engine (`intervals.ts`, ported from his
+ * calendar component) instead of a naive overlap check. For each Fri→Mon window
+ * (ADR-011), we subtract each participant's busy time; a participant is available
+ * when no busy time falls in the window. Availability-only, no event-priority
+ * scoring in V1 (ADR-003).
  *
- * Kevin replaces the mocked calendar with the real (mocked-for-demo) calendar
- * source; the CONTRACT (AvailabilityQuery → CandidateWeekend[]) holds.
+ * The mocked `BusyCalendar` (epoch-ms ranges) is what the demo feeds in; Kevin's
+ * Google-Calendar path produces the same busy ranges in production.
  */
-import type {
-  AvailabilityQuery,
-  CandidateWeekend,
-} from "../../contracts/index.js";
+import type { AvailabilityQuery, CandidateWeekend } from "../../contracts/index.js";
+import { subtractBusy, totalMs, type Interval } from "./intervals.js";
 
-/** Mocked busy ranges per user (epoch ms). Real version: mocks/calendar source. */
+/** Busy ranges per user, in epoch ms. */
 export type BusyCalendar = Record<string, Array<{ start: number; end: number }>>;
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -31,12 +31,21 @@ export function computeCandidateWeekends(
     const friday = nextFriday(from + w * 7 * DAY);
     const start = friday + 12 * 60 * 60 * 1000; // Fri midday
     const end = friday + 3 * DAY; // Mon
+    const window = { start: new Date(start).toISOString(), end: new Date(end).toISOString() };
+    const windowMs = end - start;
+
     const available: string[] = [];
     const conflict: string[] = [];
 
     for (const user of query.participants) {
-      const busy = (calendar[user] ?? []).some((b) => overlaps(b.start, b.end, start, end));
-      (busy ? conflict : available).push(user);
+      const busy: Interval[] = (calendar[user] ?? []).map((b) => ({
+        start: new Date(b.start).toISOString(),
+        end: new Date(b.end).toISOString(),
+      }));
+      // Free for the whole weekend ⇒ no busy time clipped out of the window.
+      const free = subtractBusy(window, busy);
+      const fullyFree = totalMs(free) >= windowMs;
+      (fullyFree ? available : conflict).push(user);
     }
 
     out.push({
@@ -58,10 +67,6 @@ function nextFriday(from: number): number {
   const day = d.getDay(); // 0 Sun .. 5 Fri
   const delta = (5 - day + 7) % 7;
   return d.getTime() + delta * DAY;
-}
-
-function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
-  return aStart < bEnd && bStart < aEnd;
 }
 
 function formatWeekend(start: number, end: number): string {
