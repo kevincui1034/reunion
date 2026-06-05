@@ -16,7 +16,7 @@ Most existing travel tools assume an individual search session. The core problem
 
 ## 4) Target users
 
-- **Primary user:** friend groups planning casual travel through WhatsApp.
+- **Primary user:** friend groups planning casual travel through iMessage.
 - **Initial persona:** friends in their 20s/30s living in different cities who want low-friction planning help.
 - **Adopter:** any group member tired of coordinating dates, preferences, and options manually.
 
@@ -64,7 +64,7 @@ As a friend in a travel group chat, I want the agent to notice when we are start
 
 ### Must have
 
-1. Message ingestion from WhatsApp via Photon / Spectrum.
+1. Message ingestion from iMessage via Photon / Spectrum (local mode).
 2. Travel intent detection.
 3. Context extraction (destination, dates, people, constraints, preferences).
 4. Memory read/write in XTrace.
@@ -92,7 +92,7 @@ As a friend in a travel group chat, I want the agent to notice when we are start
 - **FR3 — Persist memory:** person/group facts and superseding updates in XTrace.
 - **FR4 — Persist state:** trips, participants, options, polls, summaries in Butterbase.
 - **FR5 — Generate next action:** one concrete coordination step per response.
-- **FR6 — Message delivery:** responses are posted back in WhatsApp.
+- **FR6 — Message delivery:** responses are posted back in iMessage.
 
 ## 13) Non-functional requirements
 
@@ -189,7 +189,10 @@ As a friend in a travel group chat, I want the agent to notice when we are start
 
 ## 21) Open questions
 
-1. Final messaging platform path details in Photon / Spectrum
+1. ~~Final messaging platform path details in Photon / Spectrum~~ — **Resolved:**
+   iMessage via `spectrum-ts` in **local mode** (reads `chat.db` on a Mac, no
+   network). On-device intent gate runs at the top of the Spectrum loop; Telegram
+   kept as a one-config fallback. See `CLAUDE.md` for full rationale.
 2. Fastest production handoff between Butterbase and XTrace boundaries
 3. Level of real travel search needed vs mocked options
 4. Passive vs proactive trigger threshold defaults
@@ -221,3 +224,7 @@ The core insight: **the plan is already in the conversation; the agent's job is 
 ---
 
 Source: synced from the Notion PRD page linked by the project page on 2026-06-05.
+
+Amended 2026-06-05: messaging channel changed from WhatsApp to **iMessage**
+(Photon/Spectrum local mode). This local copy now diverges from the Notion source
+— update Notion to match.
