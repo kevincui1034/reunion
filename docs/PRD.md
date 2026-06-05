@@ -16,7 +16,7 @@ Most existing travel tools assume an individual search session. The core problem
 
 ## 4) Target users
 
-- **Primary user:** friend groups planning casual travel through WhatsApp.
+- **Primary user:** friend groups planning casual travel through iMessage.
 - **Initial persona:** friends in their 20s/30s living in different cities who want low-friction planning help.
 - **Adopter:** any group member tired of coordinating dates, preferences, and options manually.
 
@@ -64,7 +64,7 @@ As a friend in a travel group chat, I want the agent to notice when we are start
 
 ### Must have
 
-1. Message ingestion from WhatsApp via Photon / Spectrum.
+1. Message ingestion from iMessage via Photon / Spectrum.
 2. Travel intent detection.
 3. Context extraction (destination, dates, people, constraints, preferences).
 4. Memory read/write in XTrace.
@@ -92,7 +92,7 @@ As a friend in a travel group chat, I want the agent to notice when we are start
 - **FR3 — Persist memory:** person/group facts and superseding updates in XTrace.
 - **FR4 — Persist state:** trips, participants, options, polls, summaries in Butterbase.
 - **FR5 — Generate next action:** one concrete coordination step per response.
-- **FR6 — Message delivery:** responses are posted back in WhatsApp.
+- **FR6 — Message delivery:** responses are posted back in iMessage.
 
 ## 13) Non-functional requirements
 
