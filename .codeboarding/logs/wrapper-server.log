@@ -1,0 +1,22 @@
+[stderr] INFO:     Started server process [79708]
+[stderr] INFO:     Waiting for application startup.
+[stderr] INFO:     Application startup complete.
+[stderr] INFO:     Uvicorn running on http://127.0.0.1:8767 (Press CTRL+C to quit)
+INFO:     127.0.0.1:53738 - "GET /health HTTP/1.1" 200 OK
+[stderr] INFO:     ('127.0.0.1', 53739) - "WebSocket /ws" [accepted]
+[stderr] 2026-06-05 12:17:59 INFO     [codeboarding_pro.ws.server:226] WebSocket connected: session e83b3382-88d8-4b70-bdcb-6df039fefa85
+[stderr] INFO:     connection open
+[stderr] 2026-06-05 12:17:59 INFO     [tool_registry.manifest:309] has_required_tools: csharp unavailable (dotnet missing); skipping check
+[stderr] 2026-06-05 12:17:59 INFO     [codeboarding_pro.lsp.bootstrap:56] LSP startup attempt 1/3
+[stderr] 2026-06-05 12:17:59 INFO     [codeboarding_pro.session:185] Session e83b3382-88d8-4b70-bdcb-6df039fefa85 initialized: repo=/Users/ethanwalker/Documents/GitHub/Reunion, project=Reunion, output=/Users/ethanwalker/Documents/GitHub/Reunion/.codeboarding
+[stderr] 2026-06-05 12:17:59 WARNING  [static_analyzer.scanner:49] No total code count found in Tokei output
+[stderr] 2026-06-05 12:17:59 INFO     [static_analyzer:207] No supported languages detected in /Users/ethanwalker/Documents/GitHub/Reunion; no LSP clients to start.
+[stderr] 2026-06-05 12:17:59 INFO     [codeboarding_pro.file_monitor:106] FileMonitor started for /Users/ethanwalker/Documents/GitHub/Reunion
+[stderr] 2026-06-05 12:17:59 INFO     [codeboarding_pro.session:203] Session e83b3382-88d8-4b70-bdcb-6df039fefa85: FileMonitor activated
+[stderr] 2026-06-05 12:17:59 INFO     [codeboarding_pro.head_watcher:46] HeadWatcher started on /Users/ethanwalker/Documents/GitHub/Reunion/.git/HEAD
+[stderr] 2026-06-05 12:17:59 INFO     [codeboarding_pro.session:248] Session e83b3382-88d8-4b70-bdcb-6df039fefa85: LSP wiring complete
+[stderr] 2026-06-05 12:17:59 INFO     [codeboarding_pro.lsp.bootstrap:67] LSP clients started successfully (attempt 1)
+[stderr] 2026-06-05 12:41:44 INFO     [watchfiles.main:308] 1 change detected
+[stderr] 2026-06-05 12:51:37 INFO     [watchfiles.main:308] 1 change detected
+[stderr] 2026-06-05 12:51:37 INFO     [watchfiles.main:308] 1 change detected
+[stderr] 2026-06-05 12:54:50 INFO     [watchfiles.main:308] 1 change detected

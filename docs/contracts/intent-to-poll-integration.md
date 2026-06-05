@@ -7,9 +7,14 @@
 
 ## Purpose
 
-Define the boundary contract between Reunion's intent layer and Photon's iMessage layer for the first coordination artifact: a native availability poll sent to the group chat, ending with a structured user roster.
+Define the boundary contract between Reunion's on-device intent layer and Photon's iMessage layer for the first coordination artifact: a native availability poll sent to the group chat, ending with a structured user roster.
 
-**Photon is the iMessage connector.** Inbound text is read **locally on the device** via `@photon-ai/advanced-imessage-kit`, classified on-device, and only gate-passing intent is sent to the cloud; poll create/vote/parse also goes through `@photon-ai/advanced-imessage-kit`.
+**Intent runs on-device, before the cloud.** Photon grabs each inbound iMessage and calls an on-device CoreML/Swift classifier that resolves the **WHERE** (travel intent + destination). Only messages that pass the on-device gate are forwarded to the cloud backend. The backend then asks Photon to send a native poll that resolves the **WHO** (who is in). This keeps the local-filter-before-cloud posture of ADR-007 / ADR-014, now realized as an on-device model.
+
+- **WHERE** — destination/timeframe, resolved on-device by the CoreML/Swift classifier.
+- **WHO** — availability, resolved by the iMessage poll → roster.
+
+**Photon is the iMessage connector.** Inbound text arrives via Spectrum (`spectrum-ts` + iMessage provider); poll create/vote/parse always goes through `@photon-ai/advanced-imessage-kit`. Photon also invokes the on-device classifier and bridges to the backend. Both Photon surfaces are shown as a single connector participant below.
 
 ## Integration boundaries (ownership)
 
@@ -17,46 +22,46 @@ The contract is the seam between independently built components. Each owner impl
 
 | Component | Owner role | Responsibility |
 |-----------|------------|----------------|
-| **On-device Intent** | Edge filter | CoreML / Swift travel-intent classifier; runs locally, emits `IntentClassificationResult` only when the gate passes |
-| **Photon** | Connector | Local inbound text + native poll create/vote/parse (advanced-imessage-kit) |
-| **RocketRide** | Orchestration (cloud) | Receives gate-passing intent, drives the poll flow, normalizes votes, emits the roster |
+| **On-device classifier (CoreML / Swift)** | Intent (WHERE) | Classifies travel intent + destination on device; applies the gate before any cloud call |
+| **Photon** | Connector | Inbound text (Spectrum webhook), calls the on-device classifier, bridges to the backend, native poll create/vote/parse (advanced-imessage-kit) |
+| **RocketRide** | Backend orchestration | Receives classified messages from Photon, drives the poll flow, normalizes votes, emits the roster |
+| **Butterbase** | Backend state | Transactional trip/poll/vote state and plan artifacts |
 | **XTrace** | Knowledge | Stores group-chat knowledge: roster facts, participants, group context |
-| **Butterbase** | State | Transactional trip/poll/vote state and plan artifacts |
+
+"Backend" = RocketRide orchestration + Butterbase state (+ XTrace knowledge). Photon hands the classified message to the backend and receives a poll request back.
 
 ## Flow overview
-
-The travel-intent module runs **on-device (CoreML / Swift)** and gates *before* any cloud call: raw group text is classified locally, and only a gate-passing `IntentClassificationResult` ever leaves the device to reach RocketRide. Below-threshold messages never hit the cloud.
 
 ```mermaid
 sequenceDiagram
     participant Chat as iMessage Group Chat
-    participant PH as Photon (advanced-imessage-kit, local)
-    participant ID as On-device Intent (CoreML/Swift)
-    participant RR as RocketRide (cloud)
+    participant PH as Photon (Spectrum + advanced-imessage-kit)
+    participant SW as On-device CoreML/Swift
+    participant RR as RocketRide (backend)
     participant BB as Butterbase (state)
     participant XT as XTrace (knowledge)
 
     Chat->>PH: inbound message
-    PH->>ID: inbound text (local, on-device)
-    ID->>ID: classify on-device (CoreML)
+    PH->>SW: classify(message) on-device
+    SW-->>PH: IntentClassificationResult (intent + WHERE)
     alt travel_intent >= threshold
-        ID->>RR: IntentClassificationResult (gate passed)
-        RR->>BB: upsert Trip + Group context
-        RR->>PH: CreateAvailabilityPollRequest
-        PH->>Chat: native iMessage poll
+        PH->>RR: forward classified message
+        RR->>BB: upsert Trip + Group context (WHERE)
+        RR-->>PH: CreateAvailabilityPollRequest
+        PH->>Chat: native iMessage poll (resolve WHO)
         Chat-->>PH: poll votes (async)
         PH-->>RR: PollVoteRecord (first vote only)
         RR->>BB: persist Poll + votes
         RR-->>RR: emit UserRoster
         RR->>XT: write group knowledge + roster facts
     else below threshold
-        ID-->>ID: NoOp (no cloud call, text stays on-device)
+        PH-->>PH: drop on-device (no cloud call)
     end
 ```
 
 ## Step 1 — Input: On-device intent classification
 
-Produced by the **on-device CoreML / Swift** travel-intent module (ADR-007, ADR-014), which runs on the macOS device hosting the iMessage connection. Raw message text is classified locally; downstream cloud steps (RocketRide and beyond) MUST NOT run unless this contract's gate passes. Only the `IntentClassificationResult` for gate-passing messages crosses the device→cloud boundary.
+Produced on-device by the CoreML/Swift classifier (ADR-007, ADR-014), which Photon invokes for each inbound message. This step resolves the **WHERE** (intent + destination). The gate is applied on-device: only passing messages are forwarded to the cloud backend, so no cloud call happens for non-travel chatter.
 
 ### `IntentClassificationResult`
 
@@ -91,11 +96,11 @@ Produced by the **on-device CoreML / Swift** travel-intent module (ADR-007, ADR-
 | `platform` | Must be `imessage` |
 | Required routing field | `chat_guid` (e.g. `iMessage;+;chat123456`) |
 
-If the gate fails, the on-device module returns `NoOp`, makes no cloud call, and the message text never leaves the device.
+If the gate fails, the message is dropped on-device: Photon does not forward it to the backend, and no trip, poll, or cloud work is created.
 
-## Step 2 — Action: Create availability poll
+## Step 2 — Action: Create availability poll (resolve WHO)
 
-RocketRide emits a `CreateAvailabilityPollRequest` to the iMessage adapter.
+After Photon forwards a passing classification, the backend (RocketRide) upserts trip/group context from the WHERE and emits a `CreateAvailabilityPollRequest` back to Photon, which sends the native poll to resolve the WHO.
 
 ### `CreateAvailabilityPollRequest`
 
@@ -289,7 +294,7 @@ for each voted participant_handle:
 
 | Error code | Condition | Behavior |
 |------------|-----------|----------|
-| `INTENT_GATE_FAILED` | Classifier below threshold | NoOp, no SDK call |
+| `INTENT_GATE_FAILED` | On-device classifier below threshold | Drop on-device, no cloud/backend call |
 | `MISSING_CHAT_GUID` | `chat_guid` absent or invalid | Fail fast, log |
 | `POLL_SEND_FAILED` | `sdk.polls.create` error | Retry 2x, then surface to chat |
 | `PARTIAL_ROSTER` | Timeout with <100% votes | Emit roster with voted users only; set `complete: false` |
@@ -305,21 +310,23 @@ Vote changes are not an error: a later vote for an already-voted `(poll_id, part
 
 ## Observability (demo / judges)
 
-RocketRide pipeline stages should log:
+Pipeline stages should log:
 
-1. `intent.classified` — confidence + extracted entities
-2. `poll.requested` — `chat_guid` + options
-3. `poll.sent` — `external_poll_guid`
-4. `poll.vote.received` — per `participant_handle`
-5. `vote.ignored` — duplicate vote dropped (first-vote-wins)
-6. `roster.emitted` — final `users` array + `complete`
-7. `knowledge.written` — roster + group context persisted to XTrace
+1. `intent.classified` — on-device confidence + extracted WHERE (destination/timeframe)
+2. `intent.forwarded` — passing message handed from Photon to the backend
+3. `poll.requested` — `chat_guid` + options
+4. `poll.sent` — `external_poll_guid`
+5. `poll.vote.received` — per `participant_handle`
+6. `vote.ignored` — duplicate vote dropped (first-vote-wins)
+7. `roster.emitted` — final `users` array + `complete`
+8. `knowledge.written` — roster + group context persisted to XTrace
 
 ## Resolved decisions
 
-1. **Inbound path** — inbound text is read locally via advanced-imessage-kit `sdk.on('new-message')` and classified on-device (CoreML/Swift); only gate-passing intent reaches the cloud. Poll **votes** also arrive via advanced-imessage-kit `sdk.on('new-message')`. (Spectrum cloud webhooks are not used for raw-text classification, to keep text on-device.)
-2. **Poll options** — `Yes` / `No` / `Maybe`.
-3. **Vote changes** — first-vote-wins in v1; no revisions tracked.
+1. **Intent location** — classification runs on-device (CoreML/Swift), invoked by Photon, before any cloud call. WHERE is resolved here; WHO is resolved by the poll.
+2. **Inbound path** — Photon receives inbound iMessage (Spectrum), calls the on-device classifier, and forwards only passing messages to the backend; poll **votes** always arrive via advanced-imessage-kit `sdk.on('new-message')`.
+3. **Poll options** — `Yes` / `No` / `Maybe`.
+4. **Vote changes** — first-vote-wins in v1; no revisions tracked.
 
 ## Open decisions
 
@@ -331,5 +338,6 @@ RocketRide pipeline stages should log:
 - `docs/connections/imessage.md`
 - `docs/connections/photon-spectrum.md` — Spectrum iMessage provider (inbound only)
 - `docs/PRD.md` — FR1, FR5, FR6
-- `ADR/ADR-007` — local intent filter
+- `ADR/ADR-007` — local intent filter (realized as on-device CoreML/Swift)
 - `ADR/ADR-013` — RocketRide orchestration
+- `ADR/ADR-014` — filter intent before cloud orchestration
