@@ -4,6 +4,7 @@
  * lands, without touching the pipeline.
  */
 import { InMemoryXTrace, type MemoryStore } from "./memory/xtrace.js";
+import { xtraceFromEnv } from "./memory/xtraceMemory.js";
 import { InMemoryButterbase, type StateStore } from "./state/butterbase.js";
 import { ButterbaseStore } from "./state/butterbaseStore.js";
 import { butterbaseFromEnv } from "./state/butterbaseClient.js";
@@ -14,14 +15,14 @@ export interface Clients {
 }
 
 export function createClients(): Clients {
-  // State: real Butterbase when configured AND not forced to stubs; else in-memory.
-  const bb = process.env.USE_STUBS === "false" ? butterbaseFromEnv() : null;
+  const real = process.env.USE_STUBS === "false";
+  // State: real Butterbase when configured; else in-memory.
+  const bb = real ? butterbaseFromEnv() : null;
   const state: StateStore = bb ? new ButterbaseStore(bb) : new InMemoryButterbase();
-  // TODO(team): swap InMemoryXTrace for the real XTrace client when its SDK lands.
-  return {
-    memory: new InMemoryXTrace(),
-    state,
-  };
+  // Memory: real XTrace when configured (key + orgId); else in-memory belief store.
+  const xt = real ? xtraceFromEnv() : null;
+  const memory: MemoryStore = xt ?? new InMemoryXTrace();
+  return { memory, state };
 }
 
 // RocketRide pipeline connection, read from env. Present only when at least a URI

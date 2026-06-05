@@ -15,6 +15,7 @@
     "demo": "tsx src/demo.ts",
     "db:provision": "tsx --env-file=.env src/state/provision.ts",
     "db:smoke": "tsx --env-file=.env src/state/smoke.ts",
+    "xtrace:smoke": "tsx --env-file=.env src/memory/xtraceSmoke.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
