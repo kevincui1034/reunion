@@ -19,7 +19,20 @@ export function createClients(): Clients {
   };
 }
 
+// RocketRide pipeline connection, read from env. Present only when at least a URI
+// or API key is configured — otherwise the pipeline runs on the heuristic stub.
+const rocketrideAuth = process.env.ROCKETRIDE_APIKEY ?? process.env.ROCKETRIDE_AUTH;
+const rocketride =
+  process.env.ROCKETRIDE_URI || rocketrideAuth
+    ? {
+        uri: process.env.ROCKETRIDE_URI,
+        auth: rocketrideAuth,
+        pipelinePath: process.env.ROCKETRIDE_PIPELINE ?? "./pipelines/extract-trip-signal.json",
+      }
+    : undefined;
+
 export const config = {
   useStubs: process.env.USE_STUBS !== "false",
   channel: (process.env.CHANNEL ?? "iMessage") as "iMessage" | "telegram",
+  rocketride,
 };

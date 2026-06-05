@@ -8,9 +8,10 @@
  *
  * Run with: `npm run demo`
  */
-import { createClients } from "./config.js";
+import { createClients, config } from "./config.js";
 import { classify } from "./gate/index.js";
 import { extract } from "./pipeline/extract.js";
+import { resolveExtract } from "./pipeline/extractRocketRide.js";
 import { classifySignalStrength } from "./pipeline/intent.js";
 import { route } from "./pipeline/route.js";
 import { plan } from "./pipeline/plan.js";
@@ -31,7 +32,17 @@ async function main() {
   const calendar = mockCalendar();
   const window: IncomingMessage[] = [];
 
-  console.log("🛳️  Reunion — core loop demo (stubs)\n" + "=".repeat(48));
+  // Heuristic stub by default; flips to the real RocketRide pipeline when
+  // ROCKETRIDE_* is set and USE_STUBS=false. Degrades back on any engine failure.
+  const doExtract = resolveExtract(
+    { useStubs: config.useStubs, rocketride: config.rocketride },
+    extract,
+  );
+  const extractMode = !config.useStubs && config.rocketride ? "RocketRide" : "heuristic";
+
+  console.log(
+    `🛳️  Reunion — core loop demo (extract: ${extractMode})\n` + "=".repeat(48),
+  );
 
   for (const message of sampleConversation()) {
     window.push(message);
@@ -46,7 +57,7 @@ async function main() {
     console.log(`   🚪 gate: WAKE — ${verdict.reason}`);
 
     // ── Stage 2: extraction (RocketRide) ──
-    const signal = extract(window, displayName);
+    const signal = await doExtract(window, displayName);
     const strength = classifySignalStrength(signal);
     console.log(
       `   🧩 extract: dest=${signal.destination ?? "?"} time=${signal.timeframe ?? "?"} ` +
