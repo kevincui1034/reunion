@@ -131,6 +131,21 @@ runs on **one specific Mac** tied to an iCloud account. Implications: a few-seco
 poll lag is normal (fine for a planner, not realtime), and it doesn't scale —
 demo-grade by design.
 
+### Read path — `imessage-kit` watcher, NOT the Spectrum message stream
+
+**Reunion is an ambient observer: it must check EVERY message in the group,
+including ones sent from the bridge's own account.** Spectrum's `app.messages`
+stream **drops self-sent messages** (it only yields *incoming* messages, with no
+opt-in). So the intent gate reads one layer lower, via
+`@photon-ai/imessage-kit`'s `IMessageSDK.startWatching({ onIncomingMessage,
+onFromMeMessage })` — which surfaces both incoming and from-me rows, with decoded
+`text` (handles the `attributedBody` blob) and `isFromMe`/`chatKind`/`participant`.
+
+- Spectrum stays the layer for **sending** the agent's reply later (`space.send`)
+  and keeps the channel abstraction; only the *read/gate* path bypasses it.
+- Verified end-to-end: self-sent travel messages are now classified (e.g. "Who's
+  down to go Miami?" → intent YES, location Miami).
+
 ## On-device intent classifier
 
 A **two-stage** intent model. Don't conflate the stages:
