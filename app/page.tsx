@@ -84,6 +84,7 @@ export default function Page() {
       <footer className="mt-20 flex flex-wrap items-center justify-between gap-4 border-t border-white/[0.06] pt-6 font-mono text-[11px] uppercase tracking-[0.18em] text-ink-400">
         <span>Reunion · group travel, observed not orchestrated</span>
         <span>v0.1 · trace mode: {process.env.NEXT_PUBLIC_TRACE_MODE ?? "mock"}</span>
+        <a href="/dev" className="hover:text-ink-200">dev · calendar surfaces →</a>
       </footer>
     </main>
   );
