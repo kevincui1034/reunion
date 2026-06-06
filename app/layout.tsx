@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Reunion · Calendar",
+  title: "Reunion — Intent Tracer",
   description:
-    "Google Calendar OAuth + availability engine for the Reunion group-trip agent.",
+    "Watch Reunion detect a group chat's intent to gather, reconcile calendars, and draft a weekend itinerary — in real time.",
 };
 
 export default function RootLayout({
@@ -25,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body>{children}</body>
+      <body className="grain min-h-screen antialiased">{children}</body>
     </html>
   );
 }

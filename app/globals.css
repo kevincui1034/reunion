@@ -1,52 +1,68 @@
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-html {
-  height: 100%;
+  color-scheme: dark;
+  /* Used by the /dev calendar surfaces (route-card / form-submit). */
+  --background: #0a0a0c;
+  --foreground: #e6e8ee;
 }
 
 html,
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #0a0a0c;
+  color: #e6e8ee;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+/* Grain — subtle, gives the dark a film texture rather than flat black */
+.grain::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.6 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* Hairline grid for the trace background */
+.hairline-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 28px 28px;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+/* Shimmer line used while a stage is "thinking" */
+.shimmer-line {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 106, 61, 0) 0%,
+    rgba(255, 106, 61, 0.5) 50%,
+    rgba(255, 106, 61, 0) 100%
+  );
+  background-size: 200% 100%;
 }
+
+/* Scrollbar — minimal */
+.trace-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.trace-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+.trace-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── Calendar dev surfaces (/dev) ─────────────────────────────── */
 
 .route-card {
   display: block;
