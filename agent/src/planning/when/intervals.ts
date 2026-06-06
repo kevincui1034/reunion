@@ -1,0 +1,116 @@
+/**
+ * Interval math — ported from Kevin's calendar component
+ * (feature/calendar-component `lib/availability.ts`). Pure functions, no I/O.
+ *
+ * Kept verbatim so the demo uses Kevin's real, tested engine rather than a
+ * reinvented stub. `availability.ts` wraps these to emit `CandidateWeekend[]`.
+ * When Kevin's branch merges, this file is the single place to reconcile.
+ */
+
+export interface Interval {
+  start: string; // ISO 8601
+  end: string;
+}
+
+export interface DateWindow {
+  start: string; // 'YYYY-MM-DD' or ISO datetime
+  end: string;
+}
+
+// Accepts YYYY-MM-DD (treated as start-of-day UTC) or any ISO 8601 datetime.
+function toMs(s: string): number {
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(s);
+  const v = dateOnly ? Date.parse(s + "T00:00:00.000Z") : Date.parse(s);
+  if (Number.isNaN(v)) throw new Error(`invalid date: ${s}`);
+  return v;
+}
+
+function toIso(ms: number): string {
+  return new Date(ms).toISOString();
+}
+
+/** Normalize a window to half-open [startIso, endIso). */
+export function normalizeWindow(window: DateWindow): { startIso: string; endIso: string } {
+  const s = toMs(window.start);
+  const e = toMs(window.end);
+  if (s >= e) throw new Error(`window end must be after start (got ${window.start} → ${window.end})`);
+  return { startIso: toIso(s), endIso: toIso(e) };
+}
+
+/** Returns free intervals = window minus union of busy intervals. */
+export function subtractBusy(window: DateWindow, busy: Interval[]): Interval[] {
+  const ws = toMs(window.start);
+  const we = toMs(window.end);
+  if (ws >= we) return [];
+
+  const clipped: Array<[number, number]> = [];
+  for (const b of busy) {
+    const s = Math.max(toMs(b.start), ws);
+    const e = Math.min(toMs(b.end), we);
+    if (s < e) clipped.push([s, e]);
+  }
+  clipped.sort((a, b) => a[0] - b[0]);
+
+  const merged: Array<[number, number]> = [];
+  for (const [s, e] of clipped) {
+    const last = merged[merged.length - 1];
+    if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+    else merged.push([s, e]);
+  }
+
+  const free: Interval[] = [];
+  let cursor = ws;
+  for (const [s, e] of merged) {
+    if (cursor < s) free.push({ start: toIso(cursor), end: toIso(s) });
+    cursor = Math.max(cursor, e);
+  }
+  if (cursor < we) free.push({ start: toIso(cursor), end: toIso(we) });
+  return free;
+}
+
+/** Intersect N sorted free-interval arrays into the common free intervals. */
+export function intersectFree(arrays: Interval[][]): Interval[] {
+  if (arrays.length === 0) return [];
+  let acc: Array<[number, number]> = (arrays[0] ?? []).map((i) => [toMs(i.start), toMs(i.end)]);
+  for (let i = 1; i < arrays.length; i++) {
+    const next: Array<[number, number]> = (arrays[i] ?? []).map((iv) => [toMs(iv.start), toMs(iv.end)]);
+    const out: Array<[number, number]> = [];
+    let a = 0;
+    let b = 0;
+    while (a < acc.length && b < next.length) {
+      const ai = acc[a]!;
+      const bi = next[b]!;
+      const s = Math.max(ai[0], bi[0]);
+      const e = Math.min(ai[1], bi[1]);
+      if (s < e) out.push([s, e]);
+      if (ai[1] < bi[1]) a++;
+      else b++;
+    }
+    acc = out;
+    if (acc.length === 0) break;
+  }
+  return acc.map(([s, e]) => ({ start: toIso(s), end: toIso(e) }));
+}
+
+/** Total milliseconds covered by a set of intervals. */
+export function totalMs(intervals: Interval[]): number {
+  return intervals.reduce((sum, iv) => sum + (Date.parse(iv.end) - Date.parse(iv.start)), 0);
+}
+
+/**
+ * Tolerant range-bound parse for external payloads: accepts an epoch-ms number,
+ * a numeric string, or an ISO 8601 string (date or datetime). Returns epoch ms,
+ * or null if unparseable. Used by the calendar client where the wire format of
+ * `common_free` bounds isn't pinned down yet.
+ */
+export function normalizeRangeBound(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const s = v.trim();
+    if (/^\d+$/.test(s)) return Number(s); // numeric epoch ms as a string
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(s);
+    const ms = dateOnly ? Date.parse(s + "T00:00:00.000Z") : Date.parse(s);
+    return Number.isNaN(ms) ? null : ms;
+  }
+  return null;
+}
