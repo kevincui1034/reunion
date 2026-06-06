@@ -22,6 +22,14 @@ Group travel planning usually fails because coordination state is fragmented acr
 - **Durable memory:** XTrace
 - **Application backend state:** Butterbase
 
+## Repository layout (packages)
+
+This repo is a small monorepo of independently-runnable parts:
+
+- **`/` (root)** — Next.js app: Google Calendar OAuth + availability engine + the Intent Tracer landing page (`reunion-calendar`).
+- **`agent/`** — the core RocketRide pipeline: intent → extraction → routing → memory-aware planning → next action, plus XTrace memory, Butterbase state, and the neo4j culture graph (`reunion`). Own deps; run from `agent/`.
+- **`intent-gate/`** — the on-device travel-intent gate that wakes the pipeline (`reunion-intent-gate`). Own deps; run from `intent-gate/`.
+
 ## Intent-gate demo (Variant B — Apple Foundation Models)
 
 An on-device travel-intent gate: Spectrum reads iMessage locally, a Swift sidecar

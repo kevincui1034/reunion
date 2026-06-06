@@ -1,0 +1,35 @@
+{
+  "name": "reunion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "iMessage-first group travel planning agent (coordination-memory).",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "demo": "tsx --env-file-if-exists=.env src/demo.ts",
+    "db:provision": "tsx --env-file=.env src/state/provision.ts",
+    "db:introspect": "tsx --env-file=.env src/state/introspect.ts",
+    "db:smoke": "tsx --env-file=.env src/state/smoke.ts",
+    "xtrace:smoke": "tsx --env-file=.env src/memory/xtraceSmoke.ts",
+    "graph:seed": "tsx --env-file=.env scripts/seed-culture-graph.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@butterbase/sdk": "^2.4.0",
+    "@photon-ai/imessage-kit": "^3.0.0",
+    "@xtraceai/memory": "^0.2.1",
+    "neo4j-driver": "^6.1.0",
+    "rocketride": "^1.2.0",
+    "spectrum-ts": "^1.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.0"
+  }
+}
