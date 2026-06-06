@@ -17,10 +17,61 @@ Group travel planning usually fails because coordination state is fragmented acr
 
 ## Core architecture
 
-- **Messaging interface:** Photon / Spectrum (iMessage-only)
+- **Messaging interface:** Photon / Spectrum (iMessage-first, local mode)
 - **Workflow orchestration:** RocketRide
 - **Durable memory:** XTrace
 - **Application backend state:** Butterbase
+
+## Intent-gate demo (Variant B — Apple Foundation Models)
+
+An on-device travel-intent gate: Spectrum reads iMessage locally, a Swift sidecar
+classifies each message with the on-device Apple Intelligence model, and a developer
+readout prints intent + extracted destination. No training data, nothing leaves the
+Mac. (Variant A, a purpose-trained CoreML model, is documented in
+`intent-gate/futureworks/variant-a-coreml-classifier.md`.)
+
+> Lives in `intent-gate/` as a standalone package, separate from the Next.js app.
+> Run all commands below from that directory.
+
+### One-time setup
+
+1. **Grant Full Disk Access** to the terminal app you'll run the command in
+   (Terminal, iTerm, or VS Code): System Settings → Privacy & Security →
+   Full Disk Access → enable your terminal, then fully quit and reopen it.
+   Required to read `~/Library/Messages/chat.db`.
+2. **Enable Apple Intelligence**: System Settings → Apple Intelligence & Siri.
+3. Install + build (from `intent-gate/`): `pnpm install && pnpm run sidecar:build`
+4. **Configure env**: `cp .env.example .env`, then set `BUTTERBASE_API_KEY`
+   (get the value from the team — it's a secret, never committed). Without it the
+   gate still runs and classifies; backend forwarding just logs a dry-run instead
+   of writing rows. Scope which group(s) to watch with `REUNION_CHATS` (default `Dev`).
+
+### Run
+
+```bash
+cd intent-gate
+pnpm dev             # reads iMessage, prints a readout per message
+pnpm sidecar:smoke   # offline check: pipes sample lines through the classifier
+```
+
+Send an iMessage (e.g. "we should do a trip to Lisbon in September") and watch:
+
+```
+------------------------------------------------------------
+chat:       group
+from:       +15551234567
+message:    we should do a trip to Lisbon in September
+intent:     YES
+confidence: 0.90
+location:   Lisbon
+------------------------------------------------------------
+```
+
+### Layout
+
+- `intent-gate/sidecar/` — Swift Foundation Models classifier (line-oriented JSON over stdio)
+- `intent-gate/src/index.ts` — Spectrum local read → per-chat window → classify → readout
+- `intent-gate/src/classifier.ts` — sidecar process wrapper
 
 ## Repository documentation
 
