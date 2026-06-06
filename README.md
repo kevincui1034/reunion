@@ -4,7 +4,7 @@ Reunion is a messaging-native group travel planning agent built for the Agentic 
 
 ## Project objective
 
-Build a WhatsApp-first prototype that proves one full loop:
+Build an iMessage-first prototype that proves one full loop:
 
 1. Group travel intent appears in chat.
 2. The system extracts planning entities and constraints.
